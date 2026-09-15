@@ -1,0 +1,15 @@
+{
+  "name": "BANPU Parts App",
+  "short_name": "BANPU",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#10141b",
+  "theme_color": "#10141b",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
