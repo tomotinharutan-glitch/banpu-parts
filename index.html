@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-title" content="BANPU">
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="manifest" href="manifest.json">
-    <title>BANPU Parts App PWA</title>
+    <title>BANPU Parts App PWA (Firebase)</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -35,7 +35,7 @@
             padding: 10px;
             background: #111827;
             position: sticky;
-            top: 72px; /* Approx header height */
+            top: 72px;
             z-index: 4;
         }
         button {
@@ -94,7 +94,6 @@
         .row { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid #2d3748; }
         .row span { text-align: right; color: #d1d5db; }
         .result { display: grid; grid-template-columns: 180px 1fr; gap: 15px; }
-        .hero { width: 100%; height: 180px; object-fit: contain; background: #fff; border-radius: 10px; }
         .hidden { display: none; }
         .modal {
             display: none;
@@ -117,7 +116,7 @@
             position: relative;
             overflow: auto;
         }
-        .modalClose { position: absolute; right: 10px; top: 8px; font-size: 22px; padding: 6px 11px; background: none; border: none; color: #fff; }
+        .modalClose { position: absolute; right: 10px; top: 8px; font-size: 22px; padding: 6px 11px; background: none; border: none; color: #fff; cursor: pointer; }
         .modalImg { display: block; width: 100%; max-height: 70vh; object-fit: contain; background: #fff; border-radius: 10px; }
         .photoButtons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .photoButtons button { background: #26354d; }
@@ -136,134 +135,225 @@
         .photoActionRow { display: flex; gap: 8px; flex-wrap: nowrap; align-items: stretch; margin-top: 9px; }
         .photoActionRow .pickButton { margin-top: 0; flex: 1; min-width: 0; padding: 10px 8px; font-size: 14px; }
         .backupPanel { margin: 10px 0; padding: 12px; border-radius: 12px; }
-        .shapeTabs { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
-        .shapeTab { border: 1px solid #4b5563; background: #202833; color: #fff; border-radius: 8px; padding: 8px 10px; font-weight: 700; cursor: pointer; }
-        .shapeTab.active { background: #2563eb; border-color: #2563eb; }
-        .searchShapePreview { margin-top: 7px; padding: 8px; border-radius: 10px; background: #0d1420; border: 1px solid #374151; }
-        .searchShapeLabel { font-weight: 800; margin-bottom: 6px; color: #cbd5e1; }
-        .searchShapeGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); gap: 7px; }
-        .searchShapeGrid img { width: 100%; height: 95px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid #4b5563; }
-        @media(max-width: 650px) {
-            .result { grid-template-columns: 1fr; }
-        }
+        #appContainer { display: none; }
     </style>
 </head>
 <body>
 
-<div class="panel backupPanel">
-    <h3>🛡️ データを守る (iPhone PWA)</h3>
-    <div class="small">IndexedDBを使用して大容量データを保存します。</div>
-    <div class="photoActionRow" style="margin-top:8px">
-        <button type="button" class="pickButton" id="btnBackup">💾 バックアップ</button>
-        <button type="button" class="pickButton" id="btnRestore">♻️ 復元</button>
+<!-- Authentication Overlay -->
+<div id="authOverlay" class="modal show" style="background:#10141b; z-index:100;">
+    <div class="modalBox" style="max-width: 400px; text-align: left;">
+        <h2 style="margin-top:0; text-align: center;">🔐 BANPU Parts App</h2>
+        <div class="small" style="margin-bottom:15px; text-align: center; color:#9ca3af;">会社メンバー共有ログイン / 新規登録</div>
+        <div class="field">
+            <label for="authEmail">メールアドレス</label>
+            <input id="authEmail" type="email" placeholder="example@banpu.co.jp" autocomplete="email">
+        </div>
+        <div class="field">
+            <label for="authPassword">パスワード</label>
+            <input id="authPassword" type="password" placeholder="パスワード" autocomplete="current-password">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:15px;">
+            <button id="btnLogin" class="primary" style="flex:1;">ログイン</button>
+            <button id="btnSignup" style="flex:1; background:#374151;">新規登録</button>
+        </div>
+        <div id="authMessage" class="small" style="margin-top:12px; color:#ff4d4f; text-align:center; min-height:18px;"></div>
     </div>
-    <div id="backupStatus" class="small" style="margin-top:8px"></div>
-    <div id="backupCurrentCount" class="small" style="margin-top:4px"></div>
 </div>
 
-<header>
-    <h1>📷 BANPU フォト検索</h1>
-    <div class="sub">iPhone Safari PWA (IndexedDB版)</div>
-    <div id="headerDataCount" class="sub" style="margin-top:6px"></div>
-</header>
-
-<nav>
-    <button id="bReg" class="active">📷 部品を登録</button>
-    <button id="bSearch">🔎 管理番号で検索</button>
-</nav>
-
-<main>
-    <section id="searchPage" class="page">
-        <div class="panel">
-            <h2>🔎 管理番号で検索</h2>
-            <div class="field">
-                <label for="searchManagement">管理番号</label>
-                <input id="searchManagement" placeholder="例：Z1585A_S2" autocomplete="off">
-            </div>
-            <div class="field">
-                <label for="searchPartNo">品番</label>
-                <input id="searchPartNo" placeholder="品番の一部でも検索できます" autocomplete="off">
-            </div>
-            <div class="field">
-                <label for="searchPartName">品名</label>
-                <input id="searchPartName" placeholder="品名の一部でも検索できます" autocomplete="off">
-            </div>
-            <button class="primary" style="margin-top:9px" id="btnRunSearch">🔎 検索</button>
-            <div id="managementSearchResult" style="margin-top:12px"></div>
-        </div>
-    </section>
-
-    <section id="regPage" class="page active">
-        <div class="panel">
-            <h2>📷 部品を登録</h2>
-            <div class="photoActionRow" style="margin:8px 0 12px">
-                <button type="button" class="pickButton" id="btnNewReg">🆕 新規登録</button>
-            </div>
-
-            <div class="panel">
-                <div class="sectionTitle"><h3>砂型形状</h3><span class="small">複数枚・方向自由</span></div>
-                <input id="sandInput" type="file" accept="image/*" multiple style="display:none">
-                <input id="sandCamera" type="file" accept="image/*" capture="environment" style="display:none">
-                <div class="photoActionRow">
-                    <button type="button" class="pickButton" onclick="document.getElementById('sandInput').click()">🖼️ 写真を選択</button>
-                    <button type="button" class="pickButton" onclick="document.getElementById('sandCamera').click()">📷 撮影</button>
-                </div>
-                <div id="sandPhotos" class="photos"></div>
-            </div>
-
-            <div class="grid">
-                <div class="field"><label for="management">管理番号 *</label><input id="management" placeholder="例：Z1221A-S2"></div>
-                <div class="field"><label for="partNo">品番</label><input id="partNo" placeholder="例：S1-00855-1"></div>
-                <div class="field"><label for="partName">品名</label><input id="partName" placeholder="例：ポンプケーシング"></div>
-                <div class="field"><label for="material">材質</label><input id="material" placeholder="例：FC250"></div>
-                <div class="field"><label for="quantity">数量</label><input id="quantity" inputmode="numeric"></div>
-                <div class="field"><label for="castingWeight">鋳込み重量</label><input id="castingWeight" inputmode="decimal"></div>
-                <div class="field"><label for="due">納期</label><input type="date" id="due"></div>
-            </div>
-
-            <div class="panel">
-                <div class="sectionTitle"><h3>素材形状</h3><span class="small">1枚</span></div>
-                <input id="materialInput" type="file" accept="image/*" style="display:none">
-                <input id="materialCamera" type="file" accept="image/*" capture="environment" style="display:none">
-                <div class="photoActionRow">
-                    <button type="button" class="pickButton" onclick="document.getElementById('materialInput').click()">🖼️ 写真を選択</button>
-                    <button type="button" class="pickButton" onclick="document.getElementById('materialCamera').click()">📷 撮影</button>
-                </div>
-                <div id="materialPhoto" class="photos"></div>
-            </div>
-
-            <div class="panel">
-                <div class="sectionTitle"><h3>鋳造方案形状</h3><span class="small">1枚</span></div>
-                <input id="planInput" type="file" accept="image/*" style="display:none">
-                <input id="planCamera" type="file" accept="image/*" capture="environment" style="display:none">
-                <div class="photoActionRow">
-                    <button type="button" class="pickButton" onclick="document.getElementById('planInput').click()">🖼️ 写真を選択</button>
-                    <button type="button" class="pickButton" onclick="document.getElementById('planCamera').click()">📷 撮影</button>
-                </div>
-                <div id="planPhoto" class="photos"></div>
-            </div>
-
-            <div class="field"><label>備考</label><textarea id="memo"></textarea></div>
-            <button class="primary" style="width:100%" id="btnSavePart">登録・保存</button>
-            <div id="saveMessage" style="margin-top:10px"></div>
-        </div>
-    </section>
-
-    <div id="photoModal" class="modal">
-        <div class="modalBox">
-            <button class="modalClose" id="btnModalClose">×</button>
-            <h3 id="modalTitle"></h3>
-            <img id="modalImg" class="modalImg" alt="拡大画像">
-        </div>
+<!-- Main App Container (Gated by Auth) -->
+<div id="appContainer">
+    <div id="userBar" style="background:#111827; padding:8px 16px; border-bottom:1px solid #374151; display:flex; justify-content:space-between; align-items:center; font-size:13px;">
+        <span id="userEmailDisplay" style="color:#9ca3af;"></span>
+        <button id="btnLogout" style="padding:6px 10px; font-size:12px; background:#dc2626; border-color:#dc2626;">ログアウト</button>
     </div>
-</main>
+
+    <div class="panel backupPanel" style="margin: 15px; max-width: 1050px; margin-left: auto; margin-right: auto;">
+        <h3>🛡️ データを守る (Firebase共有 ＆ ローカル)</h3>
+        <div class="small">Cloud Firestore ＆ Cloud Storageで全メンバーと同期します。</div>
+        <div class="photoActionRow" style="margin-top:8px">
+            <button type="button" class="pickButton" id="btnBackup">💾 バックアップ (JSON)</button>
+            <button type="button" class="pickButton" id="btnRestore">♻️ 復元</button>
+        </div>
+        <button type="button" class="pickButton" id="btnMigrateLocal" style="background:#047857; border-color:#047857; width:100%; margin-top:8px;">📥 ローカルIndexedDBデータをFirebaseへ移行</button>
+        <div id="backupStatus" class="small" style="margin-top:8px"></div>
+        <div id="backupCurrentCount" class="small" style="margin-top:4px"></div>
+    </div>
+
+    <header>
+        <h1>📷 BANPU フォト検索 (Firebase共有版)</h1>
+        <div class="sub">Cloud Firestore / Cloud Storage</div>
+        <div id="headerDataCount" class="sub" style="margin-top:6px"></div>
+    </header>
+
+    <nav>
+        <button id="bReg" class="active">📷 部品を登録</button>
+        <button id="bSearch">🔎 管理番号で検索</button>
+    </nav>
+
+    <main>
+        <section id="searchPage" class="page">
+            <div class="panel">
+                <h2>🔎 管理番号で検索</h2>
+                <div class="field">
+                    <label for="searchManagement">管理番号</label>
+                    <input id="searchManagement" placeholder="例：Z1585A_S2" autocomplete="off">
+                </div>
+                <div class="field">
+                    <label for="searchPartNo">品番</label>
+                    <input id="searchPartNo" placeholder="品番の一部でも検索できます" autocomplete="off">
+                </div>
+                <div class="field">
+                    <label for="searchPartName">品名</label>
+                    <input id="searchPartName" placeholder="品名の一部でも検索できます" autocomplete="off">
+                </div>
+                <button class="primary" style="margin-top:9px" id="btnRunSearch">🔎 検索</button>
+                <div id="managementSearchResult" style="margin-top:12px"></div>
+            </div>
+        </section>
+
+        <section id="regPage" class="page active">
+            <div class="panel">
+                <h2>📷 部品を登録 (Firebase同期)</h2>
+                <div class="photoActionRow" style="margin:8px 0 12px">
+                    <button type="button" class="pickButton" id="btnNewReg">🆕 新規登録</button>
+                </div>
+
+                <div class="panel">
+                    <div class="sectionTitle"><h3>砂型形状</h3><span class="small">複数枚・方向自由</span></div>
+                    <input id="sandInput" type="file" accept="image/*" multiple style="display:none">
+                    <input id="sandCamera" type="file" accept="image/*" capture="environment" style="display:none">
+                    <div class="photoActionRow">
+                        <button type="button" class="pickButton" onclick="document.getElementById('sandInput').click()">🖼️ 写真を選択</button>
+                        <button type="button" class="pickButton" onclick="document.getElementById('sandCamera').click()">📷 撮影</button>
+                    </div>
+                    <div id="sandPhotos" class="photos"></div>
+                </div>
+
+                <div class="grid">
+                    <div class="field"><label for="management">管理番号 *</label><input id="management" placeholder="例：Z1221A-S2"></div>
+                    <div class="field"><label for="partNo">品番</label><input id="partNo" placeholder="例：S1-00855-1"></div>
+                    <div class="field"><label for="partName">品名</label><input id="partName" placeholder="例：ポンプケーシング"></div>
+                    <div class="field"><label for="material">材質</label><input id="material" placeholder="例：FC250"></div>
+                    <div class="field"><label for="quantity">数量</label><input id="quantity" inputmode="numeric"></div>
+                    <div class="field"><label for="castingWeight">鋳込み重量</label><input id="castingWeight" inputmode="decimal"></div>
+                    <div class="field"><label for="due">納期</label><input type="date" id="due"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="sectionTitle"><h3>素材形状</h3><span class="small">1枚</span></div>
+                    <input id="materialInput" type="file" accept="image/*" style="display:none">
+                    <input id="materialCamera" type="file" accept="image/*" capture="environment" style="display:none">
+                    <div class="photoActionRow">
+                        <button type="button" class="pickButton" onclick="document.getElementById('materialInput').click()">🖼️ 写真を選択</button>
+                        <button type="button" class="pickButton" onclick="document.getElementById('materialCamera').click()">📷 撮影</button>
+                    </div>
+                    <div id="materialPhoto" class="photos"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="sectionTitle"><h3>鋳造方案形状</h3><span class="small">1枚</span></div>
+                    <input id="planInput" type="file" accept="image/*" style="display:none">
+                    <input id="planCamera" type="file" accept="image/*" capture="environment" style="display:none">
+                    <div class="photoActionRow">
+                        <button type="button" class="pickButton" onclick="document.getElementById('planInput').click()">🖼️ 写真を選択</button>
+                        <button type="button" class="pickButton" onclick="document.getElementById('planCamera').click()">📷 撮影</button>
+                    </div>
+                    <div id="planPhoto" class="photos"></div>
+                </div>
+
+                <div class="field"><label>備考</label><textarea id="memo"></textarea></div>
+                <button class="primary" style="width:100%" id="btnSavePart">登録・保存 (Firestore送信)</button>
+                <div id="saveMessage" style="margin-top:10px"></div>
+            </div>
+        </section>
+
+        <div id="photoModal" class="modal">
+            <div class="modalBox">
+                <button class="modalClose" id="btnModalClose">×</button>
+                <h3 id="modalTitle"></h3>
+                <img id="modalImg" class="modalImg" alt="拡大画像">
+            </div>
+        </div>
+    </main>
+</div>
 
 <script type="module">
-    import storage from './storage.js';
+    import localStorageDB from './storage.js';
+    import {
+        auth,
+        db,
+        storage as fbStorage,
+        signInWithEmailAndPassword,
+        createUserWithEmailAndPassword,
+        signOut,
+        onAuthStateChanged,
+        collection,
+        addDoc,
+        setDoc,
+        doc,
+        getDocs,
+        deleteDoc,
+        ref,
+        uploadString,
+        getDownloadURL
+    } from './firebase-config.js';
 
     let sandFiles = [];
     let materialFile = null;
     let planFile = null;
+    let currentUser = null;
+
+    // --- Auth State Handling ---
+    onAuthStateChanged(auth, async (user) => {
+        currentUser = user;
+        const authOverlay = document.getElementById('authOverlay');
+        const appContainer = document.getElementById('appContainer');
+        const userEmailDisplay = document.getElementById('userEmailDisplay');
+
+        if (user) {
+            authOverlay.classList.remove('show');
+            appContainer.style.display = 'block';
+            userEmailDisplay.textContent = `ログイン中: ${user.email}`;
+            await initApp();
+        } else {
+            authOverlay.classList.add('show');
+            appContainer.style.display = 'none';
+        }
+    });
+
+    document.getElementById('btnLogin').onclick = async () => {
+        const email = document.getElementById('authEmail').value.trim();
+        const pass = document.getElementById('authPassword').value;
+        const msg = document.getElementById('authMessage');
+        msg.textContent = 'ログイン中...';
+        try {
+            await signInWithEmailAndPassword(auth, email, pass);
+            msg.textContent = '';
+        } catch (e) {
+            msg.textContent = 'ログインエラー: ' + e.message;
+        }
+    };
+
+    document.getElementById('btnSignup').onclick = async () => {
+        const email = document.getElementById('authEmail').value.trim();
+        const pass = document.getElementById('authPassword').value;
+        const msg = document.getElementById('authMessage');
+        msg.textContent = 'アカウント作成中...';
+        try {
+            await createUserWithEmailAndPassword(auth, email, pass);
+            msg.textContent = '';
+            alert('アカウントを作成しログインしました！');
+        } catch (e) {
+            msg.textContent = '登録エラー: ' + e.message;
+        }
+    };
+
+    document.getElementById('btnLogout').onclick = async () => {
+        if (confirm('ログアウトしますか？')) {
+            await signOut(auth);
+        }
+    };
 
     // --- UI Helpers ---
     function tab(id) {
@@ -326,27 +416,48 @@
         }
     }
 
-    // --- Core Logic ---
-    async function init() {
-        await storage.init();
-        updateCount();
+    // --- Firebase Data Operations ---
+    async function getAllFirestoreParts() {
+        const snapshot = await getDocs(collection(db, "parts"));
+        const list = [];
+        snapshot.forEach(docSnap => {
+            list.push({ ...docSnap.data(), id: docSnap.id });
+        });
+        return list;
+    }
+
+    async function initApp() {
+        await updateCount();
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js');
         }
     }
 
     async function updateCount() {
-        const data = await storage.getAll();
-        const photoCount = data.reduce((n, p) => n + (p.sand?.length || 0) + (p.materialShape ? 1 : 0) + (p.planShape ? 1 : 0), 0);
-        const txt = `登録数: 部品 ${data.length}件 / 写真 ${photoCount}枚`;
-        document.getElementById("backupCurrentCount").textContent = txt;
-        document.getElementById("headerDataCount").textContent = txt;
+        try {
+            const data = await getAllFirestoreParts();
+            const photoCount = data.reduce((n, p) => n + (p.sand?.length || 0) + (p.materialShape ? 1 : 0) + (p.planShape ? 1 : 0), 0);
+            const txt = `登録数: 部品 ${data.length}件 / 写真 ${photoCount}枚 (Cloud同期)`;
+            document.getElementById("backupCurrentCount").textContent = txt;
+            document.getElementById("headerDataCount").textContent = txt;
+        } catch (e) {
+            console.error("updateCount error:", e);
+        }
+    }
+
+    async function uploadBase64ToStorage(path, base64Str) {
+        if (!base64Str || !base64Str.startsWith('data:image')) return base64Str;
+        const fileRef = ref(fbStorage, path);
+        await uploadString(fileRef, base64Str, 'data_url');
+        return await getDownloadURL(fileRef);
     }
 
     async function savePart() {
+        if (!currentUser) { alert('ログインしていません。'); return; }
         const get = id => document.getElementById(id).value.trim();
+        const recordId = String(Date.now());
         const record = {
-            id: String(Date.now()),
+            id: recordId,
             management: get("management"),
             partNo: get("partNo"),
             partName: get("partName"),
@@ -358,7 +469,8 @@
             sand: [],
             materialShape: "",
             planShape: "",
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            createdBy: currentUser.email
         };
 
         if (!record.management) {
@@ -366,16 +478,41 @@
             return;
         }
 
-        document.getElementById("saveMessage").textContent = "保存中...";
+        document.getElementById("saveMessage").textContent = "Firebaseへ保存中...";
 
-        for (const f of sandFiles) record.sand.push(await fileData(f));
-        if (materialFile) record.materialShape = await fileData(materialFile);
-        if (planFile) record.planShape = await fileData(planFile);
+        // Compress sand files and upload to Storage
+        for (let i = 0; i < sandFiles.length; i++) {
+            const base64 = await fileData(sandFiles[i]);
+            if (base64) {
+                const storagePath = `parts/${recordId}/sand_${i}_${Date.now()}.jpg`;
+                const url = await uploadBase64ToStorage(storagePath, base64);
+                record.sand.push(url);
+            }
+        }
 
-        await storage.save(record);
-        document.getElementById("saveMessage").textContent = "登録しました: " + record.management;
+        // Material shape
+        if (materialFile) {
+            const base64 = await fileData(materialFile);
+            if (base64) {
+                const storagePath = `parts/${recordId}/material_${Date.now()}.jpg`;
+                record.materialShape = await uploadBase64ToStorage(storagePath, base64);
+            }
+        }
+
+        // Plan shape
+        if (planFile) {
+            const base64 = await fileData(planFile);
+            if (base64) {
+                const storagePath = `parts/${recordId}/plan_${Date.now()}.jpg`;
+                record.planShape = await uploadBase64ToStorage(storagePath, base64);
+            }
+        }
+
+        // Save to Firestore
+        await setDoc(doc(db, "parts", recordId), record);
+        document.getElementById("saveMessage").textContent = "登録完了: " + record.management;
         updateCount();
-        alert("登録完了");
+        alert("Firebaseに登録しました！");
     }
 
     async function searchByManagement() {
@@ -389,51 +526,55 @@
             return;
         }
 
-        const data = await storage.getAll();
-        const norm = s => String(s || "").toLowerCase().replace(/[\s_\-]/g, "");
-        const mquery = norm(mq), pquery = norm(pq), nquery = norm(nq);
+        box.innerHTML = '<div class="notice">検索中...</div>';
+        try {
+            const data = await getAllFirestoreParts();
+            const norm = s => String(s || "").toLowerCase().replace(/[\s_\-]/g, "");
+            const mquery = norm(mq), pquery = norm(pq), nquery = norm(nq);
 
-        const hits = data.filter(p => {
-            const m = norm(p.management), pn = norm(p.partNo), nn = norm(p.partName);
-            if (mquery && m.includes(mquery)) return true;
-            if (pquery && pn.includes(pquery)) return true;
-            if (nquery && nn.includes(nquery)) return true;
-            return false;
-        });
+            const hits = data.filter(p => {
+                const m = norm(p.management), pn = norm(p.partNo), nn = norm(p.partName);
+                if (mquery && m.includes(mquery)) return true;
+                if (pquery && pn.includes(pquery)) return true;
+                if (nquery && nn.includes(nquery)) return true;
+                return false;
+            });
 
-        if (!hits.length) {
-            box.innerHTML = '<div class="notice">該当なし</div>';
-            return;
-        }
+            if (!hits.length) {
+                box.innerHTML = '<div class="notice">該当なし</div>';
+                return;
+            }
 
-        box.innerHTML = hits.map(p => `
-            <div class="panel">
-                <h3>⭐ ${p.management}</h3>
-                <div class="row">品番: <span>${p.partNo || ''}</span></div>
-                <div class="row">品名: <span>${p.partName || ''}</span></div>
-                <div class="row">材質: <span>${p.material || ''}</span></div>
-                <div class="row">数量: <span>${p.quantity || ''}</span></div>
-                <div class="row">鋳込み重量: <span>${p.castingWeight ? p.castingWeight + 'kg' : ''}</span></div>
-                <div class="row">納期: <span>${p.due || ''}</span></div>
-                <div class="row" style="display:block;text-align:left;">備考: <span style="text-align:left;color:#d1d5db;white-space:pre-wrap;word-break:break-all;">${p.memo || ''}</span></div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
-                    <button type="button" class="btnViewSand" data-id="${p.id}">📷 砂型</button>
-                    <button type="button" class="btnViewMat" data-id="${p.id}">📷 素材</button>
-                    <button type="button" class="btnViewPlan" data-id="${p.id}">📷 方案</button>
-                    <button type="button" style="color:#ff4d4f" class="btnDelete" data-id="${p.id}">🗑️ 削除</button>
+            box.innerHTML = hits.map(p => `
+                <div class="panel">
+                    <h3>⭐ ${p.management}</h3>
+                    <div class="row">品番: <span>${p.partNo || ''}</span></div>
+                    <div class="row">品名: <span>${p.partName || ''}</span></div>
+                    <div class="row">材質: <span>${p.material || ''}</span></div>
+                    <div class="row">数量: <span>${p.quantity || ''}</span></div>
+                    <div class="row">鋳込み重量: <span>${p.castingWeight ? p.castingWeight + 'kg' : ''}</span></div>
+                    <div class="row">納期: <span>${p.due || ''}</span></div>
+                    <div class="row" style="display:block;text-align:left;">備考: <span style="text-align:left;color:#d1d5db;white-space:pre-wrap;word-break:break-all;">${p.memo || ''}</span></div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+                        <button type="button" class="btnViewSand" data-id="${p.id}">📷 砂型</button>
+                        <button type="button" class="btnViewMat" data-id="${p.id}">📷 素材</button>
+                        <button type="button" class="btnViewPlan" data-id="${p.id}">📷 方案</button>
+                        <button type="button" style="color:#ff4d4f" class="btnDelete" data-id="${p.id}">🗑️ 削除</button>
+                    </div>
                 </div>
-            </div>
-        `).join('');
+            `).join('');
 
-        // Attach event listeners to results
-        box.querySelectorAll('.btnViewSand').forEach(b => b.onclick = () => showGallery(b.dataset.id, 'sand'));
-        box.querySelectorAll('.btnViewMat').forEach(b => b.onclick = () => showGallery(b.dataset.id, 'material'));
-        box.querySelectorAll('.btnViewPlan').forEach(b => b.onclick = () => showGallery(b.dataset.id, 'plan'));
-        box.querySelectorAll('.btnDelete').forEach(b => b.onclick = () => deletePart(b.dataset.id));
+            box.querySelectorAll('.btnViewSand').forEach(b => b.onclick = () => showGallery(b.dataset.id, 'sand'));
+            box.querySelectorAll('.btnViewMat').forEach(b => b.onclick = () => showGallery(b.dataset.id, 'material'));
+            box.querySelectorAll('.btnViewPlan').forEach(b => b.onclick = () => showGallery(b.dataset.id, 'plan'));
+            box.querySelectorAll('.btnDelete').forEach(b => b.onclick = () => deletePart(b.dataset.id));
+        } catch (e) {
+            box.innerHTML = `<div class="notice">検索エラー: ${e.message}</div>`;
+        }
     }
 
     async function showGallery(id, type) {
-        const data = await storage.getAll();
+        const data = await getAllFirestoreParts();
         const p = data.find(x => x.id === id);
         if (!p) return;
         const modal = document.getElementById('photoModal');
@@ -442,7 +583,7 @@
 
         let images = [];
         let title = '';
-        if (type === 'sand') { images = p.sand; title = '砂型形状'; }
+        if (type === 'sand') { images = p.sand || []; title = '砂型形状'; }
         if (type === 'material') { images = p.materialShape ? [p.materialShape] : []; title = '素材形状'; }
         if (type === 'plan') { images = p.planShape ? [p.planShape] : []; title = '鋳造方案形状'; }
 
@@ -470,22 +611,135 @@
     }
 
     async function deletePart(id) {
-        if (!confirm('削除しますか？')) return;
-        await storage.delete(id);
-        searchByManagement();
-        updateCount();
+        if (!confirm('この部品データを削除しますか？')) return;
+        try {
+            await deleteDoc(doc(db, "parts", id));
+            searchByManagement();
+            updateCount();
+            alert('削除しました');
+        } catch (e) {
+            alert('削除エラー: ' + e.message);
+        }
+    }
+
+    // --- Local IndexedDB Migration Feature ---
+    async function migrateLocalToFirebase() {
+        if (!currentUser) { alert('ログインしてください。'); return; }
+        try {
+            await localStorageDB.init();
+            const localData = await localStorageDB.getAll();
+            if (!localData || localData.length === 0) {
+                alert('移行するローカルデータ（IndexedDB）がありません。');
+                return;
+            }
+
+            if (!confirm(`ローカルに保存されている ${localData.length} 件のデータをFirebaseへ移行しますか？\n（既にFirestoreにある管理番号は重複登録されません）`)) {
+                return;
+            }
+
+            const statusEl = document.getElementById('backupStatus');
+            statusEl.textContent = '移行中...';
+
+            const firestoreData = await getAllFirestoreParts();
+            const existingIds = new Set(firestoreData.map(x => x.id));
+            const existingManagements = new Set(firestoreData.map(x => String(x.management || "").trim().toLowerCase()));
+
+            let count = 0;
+            for (const p of localData) {
+                const mgmt = String(p.management || "").trim().toLowerCase();
+                if (existingIds.has(p.id) || (mgmt && existingManagements.has(mgmt))) {
+                    continue; // Skip duplicate
+                }
+
+                const newId = p.id || String(Date.now() + Math.random());
+                const record = {
+                    id: newId,
+                    management: p.management || "",
+                    partNo: p.partNo || "",
+                    partName: p.partName || "",
+                    material: p.material || "",
+                    quantity: p.quantity || "",
+                    castingWeight: p.castingWeight || "",
+                    due: p.due || "",
+                    memo: p.memo || "",
+                    sand: [],
+                    materialShape: "",
+                    planShape: "",
+                    createdAt: p.createdAt || new Date().toISOString(),
+                    createdBy: currentUser.email
+                };
+
+                // Migrate sand photos (if base64 or url)
+                if (Array.isArray(p.sand)) {
+                    for (let i = 0; i < p.sand.length; i++) {
+                        const imgData = p.sand[i];
+                        if (imgData.startsWith('data:image')) {
+                            const storagePath = `parts/${newId}/sand_${i}_${Date.now()}.jpg`;
+                            try {
+                                const url = await uploadBase64ToStorage(storagePath, imgData);
+                                record.sand.push(url);
+                            } catch (err) {
+                                console.error("Sand photo upload failed", err);
+                            }
+                        } else {
+                            record.sand.push(imgData);
+                        }
+                    }
+                }
+
+                // Migrate material shape
+                if (p.materialShape) {
+                    if (p.materialShape.startsWith('data:image')) {
+                        const storagePath = `parts/${newId}/material_${Date.now()}.jpg`;
+                        try {
+                            record.materialShape = await uploadBase64ToStorage(storagePath, p.materialShape);
+                        } catch (err) { console.error("Material upload failed", err); }
+                    } else {
+                        record.materialShape = p.materialShape;
+                    }
+                }
+
+                // Migrate plan shape
+                if (p.planShape) {
+                    if (p.planShape.startsWith('data:image')) {
+                        const storagePath = `parts/${newId}/plan_${Date.now()}.jpg`;
+                        try {
+                            record.planShape = await uploadBase64ToStorage(storagePath, p.planShape);
+                        } catch (err) { console.error("Plan upload failed", err); }
+                    } else {
+                        record.planShape = p.planShape;
+                    }
+                }
+
+                await setDoc(doc(db, "parts", newId), record);
+                existingIds.add(newId);
+                if (mgmt) existingManagements.add(mgmt);
+                count++;
+            }
+
+            statusEl.textContent = `✅ 移行完了: 新規 ${count} 件をFirebaseへ追加しました`;
+            updateCount();
+            alert(`ローカルデータのFirebase移行が完了しました！（新規追加: ${count}件）\n※ローカルデータは安全のため保持されています。`);
+        } catch (e) {
+            console.error("Migration error:", e);
+            alert('移行エラー: ' + e.message);
+        }
     }
 
     async function backupData() {
-        const data = await storage.getAll();
-        const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `banpu_backup_${new Date().toISOString().slice(0,10)}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        document.getElementById('backupStatus').textContent = '✅ バックアップ完了';
+        try {
+            const data = await getAllFirestoreParts();
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `banpu_firebase_backup_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            document.getElementById('backupStatus').textContent = '✅ バックアップ完了 (Firebaseデータ)';
+        } catch (e) {
+            alert('バックアップエラー: ' + e.message);
+        }
     }
 
     function restoreData() {
@@ -499,10 +753,14 @@
             try {
                 const data = JSON.parse(text);
                 if (Array.isArray(data)) {
-                    if (confirm(`復元しますか？（現在のデータは削除されます）`)) {
-                        await storage.clear();
-                        for (const p of data) await storage.save(p);
+                    if (confirm(`バックアップファイルから ${data.length} 件のデータをFirebaseへ復元しますか？`)) {
+                        document.getElementById('backupStatus').textContent = '復元中...';
+                        for (const p of data) {
+                            const recId = p.id || String(Date.now() + Math.random());
+                            await setDoc(doc(db, "parts", recId), p);
+                        }
                         updateCount();
+                        document.getElementById('backupStatus').textContent = '✅ 復元完了';
                         alert('復元完了');
                     }
                 }
@@ -511,7 +769,7 @@
         input.click();
     }
 
-    // --- Events ---
+    // --- Event Listeners ---
     document.getElementById('bReg').onclick = () => tab('regPage');
     document.getElementById('bSearch').onclick = () => tab('searchPage');
     document.getElementById('btnNewReg').onclick = () => {
@@ -527,6 +785,7 @@
     document.getElementById('btnRunSearch').onclick = searchByManagement;
     document.getElementById('btnBackup').onclick = backupData;
     document.getElementById('btnRestore').onclick = restoreData;
+    document.getElementById('btnMigrateLocal').onclick = migrateLocalToFirebase;
     document.getElementById('btnModalClose').onclick = () => document.getElementById('photoModal').classList.remove('show');
 
     document.getElementById('sandInput').onchange = (e) => {
@@ -557,8 +816,6 @@
     window.onclick = (e) => {
         if (e.target.id === 'photoModal') e.target.classList.remove('show');
     };
-
-    init();
 </script>
 </body>
 </html>
