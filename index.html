@@ -573,6 +573,17 @@
         return await getDownloadURL(fileRef);
     }
 
+    function withTimeout(promise, ms = 10000, errorMsg = "Firestoreへの保存がタイムアウトしました。ネットワーク接続を確認してください。") {
+        let timer;
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(errorMsg)), ms);
+        });
+        return Promise.race([
+            promise.then(val => { clearTimeout(timer); return val; }),
+            timeoutPromise.catch(err => { clearTimeout(timer); throw err; })
+        ]);
+    }
+
     async function savePart() {
         if (!currentUser) { alert('ログインしていません。'); return; }
         const get = id => document.getElementById(id).value.trim();
@@ -600,49 +611,89 @@
         }
 
         const msgEl = document.getElementById("saveMessage");
+        msgEl.style.color = '#f5f5f5';
         msgEl.textContent = "📸 写真を処理中...";
 
-        if (sandFiles.length > 0 && sandBase64Cache.length !== sandFiles.length) {
-            sandBase64Cache = [];
-            for (const f of sandFiles) {
-                const b64 = await fileData(f);
-                if (b64) sandBase64Cache.push(b64);
-            }
-        }
-        if (materialFile && !materialBase64Cache) {
-            materialBase64Cache = await fileData(materialFile);
-        }
-        if (planFile && !planBase64Cache) {
-            planBase64Cache = await fileData(planFile);
-        }
-
-        msgEl.textContent = "☁️ Cloud Storageへアップロード中...";
-
         try {
-            const sandPromises = sandBase64Cache.map((b64, i) =>
-                uploadBase64ToStorage(`parts/${recordId}/sand_${i}_${Date.now()}.jpg`, b64)
-            );
-            const matPromise = materialBase64Cache ? uploadBase64ToStorage(`parts/${recordId}/material_${Date.now()}.jpg`, materialBase64Cache) : Promise.resolve("");
-            const planPromise = planBase64Cache ? uploadBase64ToStorage(`parts/${recordId}/plan_${Date.now()}.jpg`, planBase64Cache) : Promise.resolve("");
+            if (sandFiles.length > 0 && sandBase64Cache.length !== sandFiles.length) {
+                sandBase64Cache = [];
+                for (const f of sandFiles) {
+                    const b64 = await fileData(f);
+                    if (b64) sandBase64Cache.push(b64);
+                }
+            }
+            if (materialFile && !materialBase64Cache) {
+                materialBase64Cache = await fileData(materialFile);
+            }
+            if (planFile && !planBase64Cache) {
+                planBase64Cache = await fileData(planFile);
+            }
 
-            const [sandUrls, matUrl, planUrl] = await Promise.all([
-                Promise.all(sandPromises),
-                matPromise,
-                planPromise
-            ]);
+            msgEl.textContent = "☁️ Cloud Storageへアップロード中...";
+
+            // Batch upload helper (2 concurrent at a time to prevent Safari socket overload)
+            async function uploadInBatches(tasks, batchSize = 2) {
+                const results = [];
+                for (let i = 0; i < tasks.length; i += batchSize) {
+                    const chunk = tasks.slice(i, i + batchSize);
+                    const chunkResults = await Promise.all(chunk.map(task => task()));
+                    results.push(...chunkResults);
+                }
+                return results;
+            }
+
+            const sandTasks = sandBase64Cache.map((b64, i) => async () => {
+                const storagePath = `parts/${recordId}/sand_${i}_${Date.now()}.jpg`;
+                return await uploadBase64ToStorage(storagePath, b64);
+            });
+
+            const otherTasks = [];
+            if (materialBase64Cache) {
+                otherTasks.push(async () => {
+                    return await uploadBase64ToStorage(`parts/${recordId}/material_${Date.now()}.jpg`, materialBase64Cache);
+                });
+            }
+            if (planBase64Cache) {
+                otherTasks.push(async () => {
+                    return await uploadBase64ToStorage(`parts/${recordId}/plan_${Date.now()}.jpg`, planBase64Cache);
+                });
+            }
+
+            const sandUrls = await uploadInBatches(sandTasks, 2);
+            const otherUrls = await uploadInBatches(otherTasks, 2);
 
             record.sand = sandUrls;
-            record.materialShape = matUrl;
-            record.planShape = planUrl;
+            if (materialBase64Cache) record.materialShape = otherUrls[0] || "";
+            if (planBase64Cache) record.planShape = materialBase64Cache ? (otherUrls[1] || "") : (otherUrls[0] || "");
 
             msgEl.textContent = "💾 部品情報をFirestoreに保存中...";
-            await setDoc(doc(db, "parts", recordId), record);
+
+            const firestorePromise = setDoc(doc(db, "parts", recordId), record);
+            await withTimeout(firestorePromise, 10000);
+
+            msgEl.style.color = '#34d399';
             msgEl.textContent = "登録完了: " + record.management;
             updateCount();
             alert("Firebaseに登録しました！");
         } catch (e) {
-            msgEl.textContent = "保存エラー: " + e.message;
-            alert("保存に失敗しました: " + e.message);
+            let errorType = "保存エラー";
+            let errorMsg = e.message || "";
+            if (errorMsg.includes("タイムアウト")) {
+                errorType = "タイムアウトエラー";
+            } else if (errorMsg.includes("permission") || errorMsg.includes("権限")) {
+                errorType = "権限エラー (Permission Denied)";
+            } else if (errorMsg.includes("network") || errorMsg.includes("offline") || errorMsg.includes("Failed to fetch")) {
+                errorType = "ネットワークエラー";
+            } else if (errorMsg.includes("storage") || errorMsg.includes("Storage")) {
+                errorType = "Storageアップロードエラー";
+            } else {
+                errorType = "Firestore保存エラー";
+            }
+
+            const fullMsg = `${errorType}: ${errorMsg}`;
+            msgEl.style.color = '#ff4d4f';
+            msgEl.textContent = fullMsg;
+            alert(fullMsg);
         }
     }
 
