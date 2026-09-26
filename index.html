@@ -144,7 +144,8 @@
 <div id="authOverlay" class="modal show" style="background:#10141b; z-index:100;">
     <div class="modalBox" style="max-width: 400px; text-align: left;">
         <h2 style="margin-top:0; text-align: center;">🔐 TsurumiPump Parts App</h2>
-        <div class="small" style="margin-bottom:15px; text-align: center; color:#9ca3af;">会社メンバー共有ログイン / 新規登録</div>
+        <div class="small" style="margin-bottom:8px; text-align: center; color:#9ca3af;">会社メンバー共有ログイン / 新規登録</div>
+        <div class="small" style="margin-bottom:15px; text-align: center; color:#93c5fd; font-weight:700;">会社メールアドレスのみ登録できます（@tsurumipump.co.jp）</div>
         <div class="field">
             <label for="authEmail">メールアドレス</label>
             <input id="authEmail" type="email" placeholder="example@tsurumipump.co.jp" autocomplete="email">
@@ -156,6 +157,10 @@
         <div style="display:flex; gap:10px; margin-top:15px;">
             <button id="btnLogin" class="primary" style="flex:1;">ログイン</button>
             <button id="btnSignup" style="flex:1; background:#374151;">新規登録</button>
+        </div>
+        <div id="verifyActionRow" style="display:none; margin-top:12px; gap:8px; flex-direction:column;">
+            <button id="btnResend" style="background:#1e40af; width:100%;">確認メールを再送信</button>
+            <button id="btnCheckVerified" style="background:#047857; width:100%;">確認完了したらクリック (状態更新)</button>
         </div>
         <div id="authMessage" class="small" style="margin-top:12px; color:#ff4d4f; text-align:center; min-height:18px;"></div>
     </div>
@@ -288,6 +293,7 @@
         createUserWithEmailAndPassword,
         signOut,
         onAuthStateChanged,
+        sendEmailVerification,
         collection,
         addDoc,
         setDoc,
@@ -300,9 +306,16 @@
     } from './firebase-config.js';
 
     let sandFiles = [];
+    let sandBase64Cache = [];
     let materialFile = null;
+    let materialBase64Cache = "";
     let planFile = null;
+    let planBase64Cache = "";
     let currentUser = null;
+
+    function isCompanyEmail(email) {
+        return email && email.toLowerCase().endsWith('@tsurumipump.co.jp');
+    }
 
     // --- Auth State Handling ---
     onAuthStateChanged(auth, async (user) => {
@@ -310,13 +323,37 @@
         const authOverlay = document.getElementById('authOverlay');
         const appContainer = document.getElementById('appContainer');
         const userEmailDisplay = document.getElementById('userEmailDisplay');
+        const authMessage = document.getElementById('authMessage');
+        const verifyActionRow = document.getElementById('verifyActionRow');
 
         if (user) {
+            if (!isCompanyEmail(user.email)) {
+                authMessage.style.color = '#ff4d4f';
+                authMessage.textContent = '会社のメールアドレス（@tsurumipump.co.jp）ではありません。';
+                verifyActionRow.style.display = 'none';
+                authOverlay.classList.add('show');
+                appContainer.style.display = 'none';
+                await signOut(auth);
+                return;
+            }
+
+            if (!user.emailVerified) {
+                authMessage.style.color = '#ff4d4f';
+                authMessage.textContent = 'メールアドレスの確認が必要です。確認メールをご確認ください。';
+                verifyActionRow.style.display = 'flex';
+                authOverlay.classList.add('show');
+                appContainer.style.display = 'none';
+                return;
+            }
+
+            verifyActionRow.style.display = 'none';
+            authMessage.textContent = '';
             authOverlay.classList.remove('show');
             appContainer.style.display = 'block';
             userEmailDisplay.textContent = `ログイン中: ${user.email}`;
             await initApp();
         } else {
+            verifyActionRow.style.display = 'none';
             authOverlay.classList.add('show');
             appContainer.style.display = 'none';
         }
@@ -326,11 +363,34 @@
         const email = document.getElementById('authEmail').value.trim();
         const pass = document.getElementById('authPassword').value;
         const msg = document.getElementById('authMessage');
+        const verifyActionRow = document.getElementById('verifyActionRow');
+        verifyActionRow.style.display = 'none';
+
+        if (!email || !pass) {
+            msg.style.color = '#ff4d4f';
+            msg.textContent = 'メールアドレスとパスワードを入力してください。';
+            return;
+        }
+
+        if (!isCompanyEmail(email)) {
+            msg.style.color = '#ff4d4f';
+            msg.textContent = '会社のメールアドレス（@tsurumipump.co.jp）でログインしてください。';
+            return;
+        }
+
+        msg.style.color = '#f5f5f5';
         msg.textContent = 'ログイン中...';
         try {
-            await signInWithEmailAndPassword(auth, email, pass);
+            const res = await signInWithEmailAndPassword(auth, email, pass);
+            if (!res.user.emailVerified) {
+                msg.style.color = '#ff4d4f';
+                msg.textContent = 'メールアドレスの確認が必要です。確認メールのリンクを開いてください。';
+                verifyActionRow.style.display = 'flex';
+                return;
+            }
             msg.textContent = '';
         } catch (e) {
+            msg.style.color = '#ff4d4f';
             msg.textContent = 'ログインエラー: ' + e.message;
         }
     };
@@ -339,13 +399,68 @@
         const email = document.getElementById('authEmail').value.trim();
         const pass = document.getElementById('authPassword').value;
         const msg = document.getElementById('authMessage');
+        const verifyActionRow = document.getElementById('verifyActionRow');
+        verifyActionRow.style.display = 'none';
+
+        if (!email || !pass) {
+            msg.style.color = '#ff4d4f';
+            msg.textContent = 'メールアドレスとパスワードを入力してください。';
+            return;
+        }
+
+        if (!isCompanyEmail(email)) {
+            msg.style.color = '#ff4d4f';
+            msg.textContent = '会社のメールアドレス（@tsurumipump.co.jp）で登録してください。';
+            return;
+        }
+
+        msg.style.color = '#f5f5f5';
         msg.textContent = 'アカウント作成中...';
         try {
-            await createUserWithEmailAndPassword(auth, email, pass);
-            msg.textContent = '';
-            alert('アカウントを作成しログインしました！');
+            const res = await createUserWithEmailAndPassword(auth, email, pass);
+            await sendEmailVerification(res.user);
+            msg.style.color = '#34d399';
+            msg.textContent = '確認メールを送信しました。メール内のリンクを開いて確認してください。';
+            verifyActionRow.style.display = 'flex';
         } catch (e) {
+            msg.style.color = '#ff4d4f';
             msg.textContent = '登録エラー: ' + e.message;
+        }
+    };
+
+    document.getElementById('btnResend').onclick = async () => {
+        const msg = document.getElementById('authMessage');
+        if (auth.currentUser) {
+            try {
+                await sendEmailVerification(auth.currentUser);
+                msg.style.color = '#34d399';
+                msg.textContent = '確認メールを再送信しました。';
+            } catch (e) {
+                msg.style.color = '#ff4d4f';
+                msg.textContent = '再送信エラー: ' + e.message;
+            }
+        }
+    };
+
+    document.getElementById('btnCheckVerified').onclick = async () => {
+        const msg = document.getElementById('authMessage');
+        if (auth.currentUser) {
+            msg.style.color = '#f5f5f5';
+            msg.textContent = '確認状態を確認中...';
+            try {
+                await auth.currentUser.reload();
+                if (auth.currentUser.emailVerified) {
+                    msg.style.color = '#34d399';
+                    msg.textContent = 'メール確認が完了しました！アプリを起動します...';
+                    setTimeout(() => { window.location.reload(); }, 1000);
+                } else {
+                    msg.style.color = '#ff4d4f';
+                    msg.textContent = 'まだメール確認が完了していません。メール内のリンクをご確認ください。';
+                }
+            } catch (e) {
+                msg.style.color = '#ff4d4f';
+                msg.textContent = '確認エラー: ' + e.message;
+            }
         }
     };
 
@@ -389,9 +504,11 @@
     async function renderSand() {
         const box = document.getElementById("sandPhotos");
         box.innerHTML = '';
+        sandBase64Cache = [];
         for (let i = 0; i < sandFiles.length; i++) {
             const src = await fileData(sandFiles[i]);
             if (!src) continue;
+            sandBase64Cache.push(src);
             const d = document.createElement('div');
             d.className = 'photo';
             d.innerHTML = `<img src="${src}" loading="lazy"><button class="remove" data-index="${i}">×</button>`;
@@ -403,12 +520,16 @@
         }
     }
 
-    async function renderOne(file, boxId) {
+    async function renderOne(file, boxId, type) {
         const box = document.getElementById(boxId);
         box.innerHTML = '';
+        if (type === 'material') materialBase64Cache = "";
+        if (type === 'plan') planBase64Cache = "";
         if (file) {
             const src = await fileData(file);
             if (!src) return;
+            if (type === 'material') materialBase64Cache = src;
+            if (type === 'plan') planBase64Cache = src;
             const d = document.createElement('div');
             d.className = 'photo';
             d.innerHTML = `<img src="${src}" loading="lazy">`;
@@ -478,41 +599,51 @@
             return;
         }
 
-        document.getElementById("saveMessage").textContent = "Firebaseへ保存中...";
+        const msgEl = document.getElementById("saveMessage");
+        msgEl.textContent = "📸 写真を処理中...";
 
-        // Compress sand files and upload to Storage
-        for (let i = 0; i < sandFiles.length; i++) {
-            const base64 = await fileData(sandFiles[i]);
-            if (base64) {
-                const storagePath = `parts/${recordId}/sand_${i}_${Date.now()}.jpg`;
-                const url = await uploadBase64ToStorage(storagePath, base64);
-                record.sand.push(url);
+        if (sandFiles.length > 0 && sandBase64Cache.length !== sandFiles.length) {
+            sandBase64Cache = [];
+            for (const f of sandFiles) {
+                const b64 = await fileData(f);
+                if (b64) sandBase64Cache.push(b64);
             }
         }
-
-        // Material shape
-        if (materialFile) {
-            const base64 = await fileData(materialFile);
-            if (base64) {
-                const storagePath = `parts/${recordId}/material_${Date.now()}.jpg`;
-                record.materialShape = await uploadBase64ToStorage(storagePath, base64);
-            }
+        if (materialFile && !materialBase64Cache) {
+            materialBase64Cache = await fileData(materialFile);
+        }
+        if (planFile && !planBase64Cache) {
+            planBase64Cache = await fileData(planFile);
         }
 
-        // Plan shape
-        if (planFile) {
-            const base64 = await fileData(planFile);
-            if (base64) {
-                const storagePath = `parts/${recordId}/plan_${Date.now()}.jpg`;
-                record.planShape = await uploadBase64ToStorage(storagePath, base64);
-            }
-        }
+        msgEl.textContent = "☁️ Cloud Storageへアップロード中...";
 
-        // Save to Firestore
-        await setDoc(doc(db, "parts", recordId), record);
-        document.getElementById("saveMessage").textContent = "登録完了: " + record.management;
-        updateCount();
-        alert("Firebaseに登録しました！");
+        try {
+            const sandPromises = sandBase64Cache.map((b64, i) =>
+                uploadBase64ToStorage(`parts/${recordId}/sand_${i}_${Date.now()}.jpg`, b64)
+            );
+            const matPromise = materialBase64Cache ? uploadBase64ToStorage(`parts/${recordId}/material_${Date.now()}.jpg`, materialBase64Cache) : Promise.resolve("");
+            const planPromise = planBase64Cache ? uploadBase64ToStorage(`parts/${recordId}/plan_${Date.now()}.jpg`, planBase64Cache) : Promise.resolve("");
+
+            const [sandUrls, matUrl, planUrl] = await Promise.all([
+                Promise.all(sandPromises),
+                matPromise,
+                planPromise
+            ]);
+
+            record.sand = sandUrls;
+            record.materialShape = matUrl;
+            record.planShape = planUrl;
+
+            msgEl.textContent = "💾 部品情報をFirestoreに保存中...";
+            await setDoc(doc(db, "parts", recordId), record);
+            msgEl.textContent = "登録完了: " + record.management;
+            updateCount();
+            alert("Firebaseに登録しました！");
+        } catch (e) {
+            msgEl.textContent = "保存エラー: " + e.message;
+            alert("保存に失敗しました: " + e.message);
+        }
     }
 
     async function searchByManagement() {
@@ -799,10 +930,12 @@
     document.getElementById('btnNewReg').onclick = () => {
         if (confirm('入力をリセットしますか？')) {
             document.querySelectorAll('input, textarea').forEach(el => el.value = '');
-            sandFiles = []; materialFile = null; planFile = null;
+            sandFiles = []; sandBase64Cache = [];
+            materialFile = null; materialBase64Cache = "";
+            planFile = null; planBase64Cache = "";
             renderSand();
-            renderOne(null, 'materialPhoto');
-            renderOne(null, 'planPhoto');
+            renderOne(null, 'materialPhoto', 'material');
+            renderOne(null, 'planPhoto', 'plan');
         }
     };
     document.getElementById('btnSavePart').onclick = savePart;
@@ -822,19 +955,19 @@
     };
     document.getElementById('materialInput').onchange = (e) => {
         materialFile = e.target.files[0];
-        renderOne(materialFile, 'materialPhoto');
+        renderOne(materialFile, 'materialPhoto', 'material');
     };
     document.getElementById('materialCamera').onchange = (e) => {
         materialFile = e.target.files[0];
-        renderOne(materialFile, 'materialPhoto');
+        renderOne(materialFile, 'materialPhoto', 'material');
     };
     document.getElementById('planInput').onchange = (e) => {
         planFile = e.target.files[0];
-        renderOne(planFile, 'planPhoto');
+        renderOne(planFile, 'planPhoto', 'plan');
     };
     document.getElementById('planCamera').onchange = (e) => {
         planFile = e.target.files[0];
-        renderOne(planFile, 'planPhoto');
+        renderOne(planFile, 'planPhoto', 'plan');
     };
 
     window.onclick = (e) => {
