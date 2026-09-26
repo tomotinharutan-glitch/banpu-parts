@@ -6,10 +6,10 @@
     <meta name="theme-color" content="#10141b">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="BANPU">
+    <meta name="apple-mobile-web-app-title" content="TsurumiPump">
     <link rel="apple-touch-icon" href="icon.svg">
     <link rel="manifest" href="manifest.json">
-    <title>BANPU Parts App PWA (Firebase)</title>
+    <title>TsurumiPump Parts App PWA (Firebase)</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -143,11 +143,11 @@
 <!-- Authentication Overlay -->
 <div id="authOverlay" class="modal show" style="background:#10141b; z-index:100;">
     <div class="modalBox" style="max-width: 400px; text-align: left;">
-        <h2 style="margin-top:0; text-align: center;">🔐 BANPU Parts App</h2>
+        <h2 style="margin-top:0; text-align: center;">🔐 TsurumiPump Parts App</h2>
         <div class="small" style="margin-bottom:15px; text-align: center; color:#9ca3af;">会社メンバー共有ログイン / 新規登録</div>
         <div class="field">
             <label for="authEmail">メールアドレス</label>
-            <input id="authEmail" type="email" placeholder="example@banpu.co.jp" autocomplete="email">
+            <input id="authEmail" type="email" placeholder="example@tsurumipump.co.jp" autocomplete="email">
         </div>
         <div class="field">
             <label for="authPassword">パスワード</label>
@@ -181,7 +181,7 @@
     </div>
 
     <header>
-        <h1>📷 BANPU フォト検索 (Firebase共有版)</h1>
+        <h1>📷 TsurumiPump フォト検索 (Firebase共有版)</h1>
         <div class="sub">Cloud Firestore / Cloud Storage</div>
         <div id="headerDataCount" class="sub" style="margin-top:6px"></div>
     </header>
@@ -733,7 +733,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `banpu_firebase_backup_${new Date().toISOString().slice(0,10)}.json`;
+            a.download = `tsurumipump_firebase_backup_${new Date().toISOString().slice(0,10)}.json`;
             a.click();
             URL.revokeObjectURL(url);
             document.getElementById('backupStatus').textContent = '✅ バックアップ完了 (Firebaseデータ)';

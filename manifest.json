@@ -1,6 +1,6 @@
 {
-  "name": "BANPU Parts App",
-  "short_name": "BANPU",
+  "name": "TsurumiPump Parts App",
+  "short_name": "TsurumiPump",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#10141b",
