@@ -287,8 +287,8 @@
     import localStorageDB from './storage.js';
     import {
         auth,
-        db,
-        storage as fbStorage,
+        getDb,
+        getStorageInstance,
         signInWithEmailAndPassword,
         createUserWithEmailAndPassword,
         signOut,
@@ -539,7 +539,7 @@
 
     // --- Firebase Data Operations ---
     async function getAllFirestoreParts() {
-        const snapshot = await getDocs(collection(db, "parts"));
+        const snapshot = await getDocs(collection(getDb(), "parts"));
         const list = [];
         snapshot.forEach(docSnap => {
             list.push({ ...docSnap.data(), id: docSnap.id });
@@ -568,7 +568,7 @@
 
     async function uploadBase64ToStorage(path, base64Str) {
         if (!base64Str || !base64Str.startsWith('data:image')) return base64Str;
-        const fileRef = ref(fbStorage, path);
+        const fileRef = ref(getStorageInstance(), path);
         await uploadString(fileRef, base64Str, 'data_url');
         return await getDownloadURL(fileRef);
     }
@@ -668,7 +668,7 @@
 
             msgEl.textContent = "💾 部品情報をFirestoreに保存中...";
 
-            const firestorePromise = setDoc(doc(db, "parts", recordId), record);
+            const firestorePromise = setDoc(doc(getDb(), "parts", recordId), record);
             await withTimeout(firestorePromise, 10000);
 
             msgEl.style.color = '#34d399';
@@ -819,7 +819,7 @@
     async function deletePart(id) {
         if (!confirm('この部品データを削除しますか？')) return;
         try {
-            await deleteDoc(doc(db, "parts", id));
+            await deleteDoc(doc(getDb(), "parts", id));
             searchByManagement();
             updateCount();
             alert('削除しました');
@@ -917,7 +917,7 @@
                     }
                 }
 
-                await setDoc(doc(db, "parts", newId), record);
+                await setDoc(doc(getDb(), "parts", newId), record);
                 existingIds.add(newId);
                 if (mgmt) existingManagements.add(mgmt);
                 count++;
@@ -963,7 +963,7 @@
                         document.getElementById('backupStatus').textContent = '復元中...';
                         for (const p of data) {
                             const recId = p.id || String(Date.now() + Math.random());
-                            await setDoc(doc(db, "parts", recId), p);
+                            await setDoc(doc(getDb(), "parts", recId), p);
                         }
                         updateCount();
                         document.getElementById('backupStatus').textContent = '✅ 復元完了';

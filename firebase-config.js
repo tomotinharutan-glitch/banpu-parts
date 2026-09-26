@@ -40,9 +40,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-// Lazy initialization proxies for Firestore and Storage to prevent top-level module crash on Safari
+// Lazy initialization for Firestore and Storage (returning real SDK instances)
 let _db = null;
-function getDatabaseInstance() {
+export function getDb() {
   if (!_db) {
     try {
       _db = getFirestore(app);
@@ -55,16 +55,8 @@ function getDatabaseInstance() {
   return _db;
 }
 
-const db = new Proxy({}, {
-  get(target, prop) {
-    const instance = getDatabaseInstance();
-    const val = instance[prop];
-    return typeof val === 'function' ? val.bind(instance) : val;
-  }
-});
-
 let _storage = null;
-function getStorageInstance() {
+export function getStorageInstance() {
   if (!_storage) {
     try {
       _storage = getStorage(app);
@@ -77,19 +69,9 @@ function getStorageInstance() {
   return _storage;
 }
 
-const storage = new Proxy({}, {
-  get(target, prop) {
-    const instance = getStorageInstance();
-    const val = instance[prop];
-    return typeof val === 'function' ? val.bind(instance) : val;
-  }
-});
-
 export {
   app,
   auth,
-  db,
-  storage,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
