@@ -173,12 +173,12 @@
         <button id="btnLogout" style="padding:6px 10px; font-size:12px; background:#dc2626; border-color:#dc2626;">ログアウト</button>
     </div>
 
-    <div class="panel backupPanel" style="margin: 15px; max-width: 1050px; margin-left: auto; margin-right: auto;">
-        <h3>🛡️ データを守る (Firebase共有 ＆ ローカル)</h3>
-        <div class="small">Cloud Firestore ＆ Cloud Storageで全メンバーと同期します。</div>
+    <div class="panel backupPanel" style="margin: 15px; max-width: 1050px; margin-left: auto; margin-right: auto; display: none;">
+        <h3>🛡️ Firebaseバックアップ・復元 (管理者専用)</h3>
+        <div class="small">Cloud Firestoreに最大2世代まで自動バックアップを保持します。</div>
         <div class="photoActionRow" style="margin-top:8px">
-            <button type="button" class="pickButton" id="btnBackup">💾 バックアップ (JSON)</button>
-            <button type="button" class="pickButton" id="btnRestore">♻️ 復元</button>
+            <button type="button" class="pickButton" id="btnBackup" style="background:#2563eb; border-color:#2563eb;">💾 バックアップ作成</button>
+            <button type="button" class="pickButton" id="btnRestore" style="background:#7c3aed; border-color:#7c3aed;">♻️ バックアップから復元</button>
         </div>
         <button type="button" class="pickButton" id="btnMigrateLocal" style="background:#047857; border-color:#047857; width:100%; margin-top:8px;">📥 ローカルIndexedDBデータをFirebaseへ移行</button>
         <div id="backupStatus" class="small" style="margin-top:8px"></div>
@@ -351,6 +351,10 @@
             authOverlay.classList.remove('show');
             appContainer.style.display = 'block';
             userEmailDisplay.textContent = `ログイン中: ${user.email}`;
+            const backupPanel = document.querySelector('.backupPanel');
+            if (backupPanel) {
+                backupPanel.style.display = isAdminUser() ? 'block' : 'none';
+            }
             await initApp();
         } else {
             verifyActionRow.style.display = 'none';
@@ -932,47 +936,127 @@
         }
     }
 
-    async function backupData() {
+    function isAdminUser() {
+        return currentUser && currentUser.email && currentUser.email.toLowerCase() === 'takanari_komuro@tsurumipump.co.jp';
+    }
+
+    async function backupDataToFirebase() {
+        if (!isAdminUser()) { alert('管理者権限がありません。'); return; }
         try {
-            const data = await getAllFirestoreParts();
-            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `tsurumipump_firebase_backup_${new Date().toISOString().slice(0,10)}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-            document.getElementById('backupStatus').textContent = '✅ バックアップ完了 (Firebaseデータ)';
+            const statusEl = document.getElementById('backupStatus');
+            statusEl.textContent = 'Firebaseバックアップ作成中...';
+
+            const currentParts = await getAllFirestoreParts();
+            const backupId = String(Date.now());
+            const backupDocData = {
+                id: backupId,
+                createdAt: new Date().toISOString(),
+                createdBy: currentUser.email,
+                parts: currentParts
+            };
+
+            await setDoc(doc(getDb(), "backups", backupId), backupDocData);
+
+            // Manage max 2 generations
+            const backupsSnapshot = await getDocs(collection(getDb(), "backups"));
+            const backupsList = [];
+            backupsSnapshot.forEach(docSnap => {
+                backupsList.push({ id: docSnap.id, ...docSnap.data() });
+            });
+            backupsList.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)); // Oldest first
+
+            while (backupsList.length > 2) {
+                const oldest = backupsList.shift();
+                await deleteDoc(doc(getDb(), "backups", oldest.id));
+            }
+
+            statusEl.textContent = '✅ Firebaseバックアップ完了 (最新2世代)';
+            alert('Firebaseへのバックアップが完了しました！');
         } catch (e) {
+            console.error("Backup error:", e);
             alert('バックアップエラー: ' + e.message);
         }
     }
 
-    function restoreData() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.onchange = async () => {
-            const file = input.files[0];
-            if (!file) return;
-            const text = await file.text();
-            try {
-                const data = JSON.parse(text);
-                if (Array.isArray(data)) {
-                    if (confirm(`バックアップファイルから ${data.length} 件のデータをFirebaseへ復元しますか？`)) {
-                        document.getElementById('backupStatus').textContent = '復元中...';
-                        for (const p of data) {
-                            const recId = p.id || String(Date.now() + Math.random());
-                            await setDoc(doc(getDb(), "parts", recId), p);
-                        }
-                        updateCount();
-                        document.getElementById('backupStatus').textContent = '✅ 復元完了';
-                        alert('復元完了');
-                    }
-                }
-            } catch (e) { alert('不正なファイル形式です'); }
-        };
-        input.click();
+    async function restoreDataFromFirebase() {
+        if (!isAdminUser()) { alert('管理者権限がありません。'); return; }
+        try {
+            const statusEl = document.getElementById('backupStatus');
+            statusEl.textContent = 'バックアップ一覧取得中...';
+
+            const backupsSnapshot = await getDocs(collection(getDb(), "backups"));
+            const backupsList = [];
+            backupsSnapshot.forEach(docSnap => {
+                backupsList.push({ id: docSnap.id, ...docSnap.data() });
+            });
+            backupsList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)); // Newest first
+
+            if (backupsList.length === 0) {
+                alert('利用可能なFirebaseバックアップがありません。');
+                statusEl.textContent = '';
+                return;
+            }
+
+            let msg = '復元するバックアップを選択してください（番号を入力）:\n\n';
+            backupsList.forEach((b, idx) => {
+                const genLabel = idx === 0 ? '【最新】' : '【1つ前】';
+                msg += `[${idx + 1}] ${genLabel} 日時: ${new Date(b.createdAt).toLocaleString()} (部品数: ${b.parts?.length || 0}件)\n`;
+            });
+
+            const selection = prompt(msg);
+            if (!selection) return;
+            const index = parseInt(selection.trim(), 10) - 1;
+            if (isNaN(index) || index < 0 || index >= backupsList.length) {
+                alert('無効な選択です。');
+                return;
+            }
+
+            const selectedBackup = backupsList[index];
+
+            if (!confirm('選択したバックアップからFirebase共有データを復元します。\n現在の共有データが変更されます。\n実行しますか？')) {
+                return;
+            }
+
+            statusEl.textContent = '安全対策: 復元前の自動バックアップ作成中...';
+            const currentParts = await getAllFirestoreParts();
+            const safetyBackupId = String(Date.now());
+            await setDoc(doc(getDb(), "backups", safetyBackupId), {
+                id: safetyBackupId,
+                createdAt: new Date().toISOString(),
+                createdBy: currentUser.email + ' (Pre-Restore Auto Backup)',
+                parts: currentParts
+            });
+
+            const freshSnap = await getDocs(collection(getDb(), "backups"));
+            const freshList = [];
+            freshSnap.forEach(d => freshList.push({ id: d.id, ...d.data() }));
+            freshList.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+            while (freshList.length > 2) {
+                const oldest = freshList.shift();
+                await deleteDoc(doc(getDb(), "backups", oldest.id));
+            }
+
+            statusEl.textContent = '復元実行中...';
+
+            const currentSnap = await getDocs(collection(getDb(), "parts"));
+            const deletePromises = [];
+            currentSnap.forEach(d => {
+                deletePromises.push(deleteDoc(doc(getDb(), "parts", d.id)));
+            });
+            await Promise.all(deletePromises);
+
+            for (const part of (selectedBackup.parts || [])) {
+                const recId = part.id || String(Date.now() + Math.random());
+                await setDoc(doc(getDb(), "parts", recId), part);
+            }
+
+            statusEl.textContent = '✅ 復元完了';
+            updateCount();
+            alert('バックアップからの復元が完了しました！');
+        } catch (e) {
+            console.error("Restore error:", e);
+            alert('復元エラー: ' + e.message);
+        }
     }
 
     // --- Event Listeners ---
@@ -991,8 +1075,8 @@
     };
     document.getElementById('btnSavePart').onclick = savePart;
     document.getElementById('btnRunSearch').onclick = searchByManagement;
-    document.getElementById('btnBackup').onclick = backupData;
-    document.getElementById('btnRestore').onclick = restoreData;
+    document.getElementById('btnBackup').onclick = backupDataToFirebase;
+    document.getElementById('btnRestore').onclick = restoreDataFromFirebase;
     document.getElementById('btnMigrateLocal').onclick = migrateLocalToFirebase;
     document.getElementById('btnModalClose').onclick = () => document.getElementById('photoModal').classList.remove('show');
 
