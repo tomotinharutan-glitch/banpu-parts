@@ -229,10 +229,10 @@
 
                 <div class="panel">
                     <div class="sectionTitle"><h3>砂型形状</h3><span class="small">複数枚・方向自由</span></div>
-                    <input id="sandInput" type="file" accept="image/*" multiple style="display:none">
+                    <input id="sandInput" type="file" accept="image/*,application/pdf" multiple style="display:none">
                     <input id="sandCamera" type="file" accept="image/*" capture="environment" style="display:none">
                     <div class="photoActionRow">
-                        <button type="button" class="pickButton" onclick="document.getElementById('sandInput').click()">🖼️ 写真を選択</button>
+                        <button type="button" class="pickButton" onclick="document.getElementById('sandInput').click()">🖼️ 写真・PDFを選択</button>
                         <button type="button" class="pickButton" onclick="document.getElementById('sandCamera').click()">📷 撮影</button>
                     </div>
                     <div id="sandPhotos" class="photos"></div>
@@ -251,10 +251,10 @@
 
                 <div class="panel">
                     <div class="sectionTitle"><h3>素材形状</h3><span class="small">1枚</span></div>
-                    <input id="materialInput" type="file" accept="image/*" style="display:none">
+                    <input id="materialInput" type="file" accept="image/*,application/pdf" style="display:none">
                     <input id="materialCamera" type="file" accept="image/*" capture="environment" style="display:none">
                     <div class="photoActionRow">
-                        <button type="button" class="pickButton" onclick="document.getElementById('materialInput').click()">🖼️ 写真を選択</button>
+                        <button type="button" class="pickButton" onclick="document.getElementById('materialInput').click()">🖼️ 写真・PDFを選択</button>
                         <button type="button" class="pickButton" onclick="document.getElementById('materialCamera').click()">📷 撮影</button>
                     </div>
                     <div id="materialPhoto" class="photos"></div>
@@ -262,10 +262,10 @@
 
                 <div class="panel">
                     <div class="sectionTitle"><h3>鋳造方案形状</h3><span class="small">1枚</span></div>
-                    <input id="planInput" type="file" accept="image/*" style="display:none">
+                    <input id="planInput" type="file" accept="image/*,application/pdf" style="display:none">
                     <input id="planCamera" type="file" accept="image/*" capture="environment" style="display:none">
                     <div class="photoActionRow">
-                        <button type="button" class="pickButton" onclick="document.getElementById('planInput').click()">🖼️ 写真を選択</button>
+                        <button type="button" class="pickButton" onclick="document.getElementById('planInput').click()">🖼️ 写真・PDFを選択</button>
                         <button type="button" class="pickButton" onclick="document.getElementById('planCamera').click()">📷 撮影</button>
                     </div>
                     <div id="planPhoto" class="photos"></div>
@@ -310,11 +310,11 @@
     } from './firebase-config.js';
 
     let sandFiles = [];
-    let sandBase64Cache = [];
+    let sandCache = [];
     let materialFile = null;
-    let materialBase64Cache = "";
+    let materialCache = null;
     let planFile = null;
-    let planBase64Cache = "";
+    let planCache = null;
     let currentUser = null;
 
     function isCompanyEmail(email) {
@@ -486,40 +486,73 @@
         document.getElementById('bReg').classList.toggle('active', id === 'regPage');
     }
 
-    async function fileData(file) {
+    function normalizeItem(item) {
+        if (!item) return { url: '', type: 'image', name: '' };
+        if (typeof item === 'string') {
+            return { url: item, type: 'image', name: '' };
+        }
+        return {
+            url: item.url || '',
+            type: item.type || 'image',
+            name: item.name || ''
+        };
+    }
+
+    async function processFile(file) {
         return new Promise(resolve => {
-            if (!file) { resolve(""); return; }
-            const img = new Image();
-            const url = URL.createObjectURL(file);
-            img.onload = () => {
-                const max = 1600;
-                const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-                const w = Math.max(1, Math.round(img.naturalWidth * scale));
-                const h = Math.max(1, Math.round(img.naturalHeight * scale));
-                const c = document.createElement("canvas");
-                c.width = w; c.height = h;
-                const ctx = c.getContext("2d");
-                ctx.drawImage(img, 0, 0, w, h);
-                const data = c.toDataURL("image/jpeg", 0.82);
-                URL.revokeObjectURL(url);
-                resolve(data);
-            };
-            img.onerror = () => { URL.revokeObjectURL(url); resolve(""); };
-            img.src = url;
+            if (!file) { resolve(null); return; }
+            if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    resolve({
+                        url: e.target.result,
+                        type: 'pdf',
+                        name: file.name
+                    });
+                };
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(file);
+            } else {
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                img.onload = () => {
+                    const max = 1600;
+                    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+                    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+                    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+                    const c = document.createElement("canvas");
+                    c.width = w; c.height = h;
+                    const ctx = c.getContext("2d");
+                    ctx.drawImage(img, 0, 0, w, h);
+                    const data = c.toDataURL("image/jpeg", 0.82);
+                    URL.revokeObjectURL(url);
+                    resolve({
+                        url: data,
+                        type: 'image',
+                        name: file.name
+                    });
+                };
+                img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+                img.src = url;
+            }
         });
     }
 
     async function renderSand() {
         const box = document.getElementById("sandPhotos");
         box.innerHTML = '';
-        sandBase64Cache = [];
+        sandCache = [];
         for (let i = 0; i < sandFiles.length; i++) {
-            const src = await fileData(sandFiles[i]);
-            if (!src) continue;
-            sandBase64Cache.push(src);
+            const processed = await processFile(sandFiles[i]);
+            if (!processed || !processed.url) continue;
+            sandCache.push(processed);
             const d = document.createElement('div');
             d.className = 'photo';
-            d.innerHTML = `<img src="${src}" loading="lazy"><button class="remove" data-index="${i}">×</button>`;
+            if (processed.type === 'pdf') {
+                d.innerHTML = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; background:#111827; border:1px solid #4b5563; border-radius:9px; height:140px; padding:10px; text-align:center;"><div style="font-size:32px;">📄</div><div style="font-size:11px; color:#cbd5e1; margin-top:5px; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">${processed.name || 'PDF'}</div></div><button class="remove" data-index="${i}">×</button>`;
+            } else {
+                d.innerHTML = `<img src="${processed.url}" loading="lazy"><button class="remove" data-index="${i}">×</button>`;
+            }
             d.querySelector('.remove').onclick = (e) => {
                 sandFiles.splice(e.target.dataset.index, 1);
                 renderSand();
@@ -531,16 +564,20 @@
     async function renderOne(file, boxId, type) {
         const box = document.getElementById(boxId);
         box.innerHTML = '';
-        if (type === 'material') materialBase64Cache = "";
-        if (type === 'plan') planBase64Cache = "";
+        if (type === 'material') materialCache = null;
+        if (type === 'plan') planCache = null;
         if (file) {
-            const src = await fileData(file);
-            if (!src) return;
-            if (type === 'material') materialBase64Cache = src;
-            if (type === 'plan') planBase64Cache = src;
+            const processed = await processFile(file);
+            if (!processed || !processed.url) return;
+            if (type === 'material') materialCache = processed;
+            if (type === 'plan') planCache = processed;
             const d = document.createElement('div');
             d.className = 'photo';
-            d.innerHTML = `<img src="${src}" loading="lazy">`;
+            if (processed.type === 'pdf') {
+                d.innerHTML = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; background:#111827; border:1px solid #4b5563; border-radius:9px; height:140px; padding:10px; text-align:center;"><div style="font-size:32px;">📄</div><div style="font-size:11px; color:#cbd5e1; margin-top:5px; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">${processed.name || 'PDF'}</div></div>`;
+            } else {
+                d.innerHTML = `<img src="${processed.url}" loading="lazy">`;
+            }
             box.appendChild(d);
         }
     }
@@ -575,9 +612,13 @@
     }
 
     async function uploadBase64ToStorage(path, base64Str) {
-        if (!base64Str || !base64Str.startsWith('data:image')) return base64Str;
+        if (!base64Str || (!base64Str.startsWith('data:image') && !base64Str.startsWith('data:application/pdf'))) return base64Str;
         const fileRef = ref(getStorageInstance(), path);
-        await uploadString(fileRef, base64Str, 'data_url');
+        if (base64Str.startsWith('data:application/pdf')) {
+            await uploadString(fileRef, base64Str, 'data_url', { contentType: 'application/pdf' });
+        } else {
+            await uploadString(fileRef, base64Str, 'data_url');
+        }
         return await getDownloadURL(fileRef);
     }
 
@@ -621,26 +662,25 @@
 
         const msgEl = document.getElementById("saveMessage");
         msgEl.style.color = '#f5f5f5';
-        msgEl.textContent = "📸 写真を処理中...";
+        msgEl.textContent = "📸 ファイルを処理中...";
 
         try {
-            if (sandFiles.length > 0 && sandBase64Cache.length !== sandFiles.length) {
-                sandBase64Cache = [];
+            if (sandFiles.length > 0 && sandCache.length !== sandFiles.length) {
+                sandCache = [];
                 for (const f of sandFiles) {
-                    const b64 = await fileData(f);
-                    if (b64) sandBase64Cache.push(b64);
+                    const proc = await processFile(f);
+                    if (proc && proc.url) sandCache.push(proc);
                 }
             }
-            if (materialFile && !materialBase64Cache) {
-                materialBase64Cache = await fileData(materialFile);
+            if (materialFile && !materialCache) {
+                materialCache = await processFile(materialFile);
             }
-            if (planFile && !planBase64Cache) {
-                planBase64Cache = await fileData(planFile);
+            if (planFile && !planCache) {
+                planCache = await processFile(planFile);
             }
 
             msgEl.textContent = "☁️ Cloud Storageへアップロード中...";
 
-            // Batch upload helper (2 concurrent at a time to prevent Safari socket overload)
             async function uploadInBatches(tasks, batchSize = 2) {
                 const results = [];
                 for (let i = 0; i < tasks.length; i += batchSize) {
@@ -651,29 +691,37 @@
                 return results;
             }
 
-            const sandTasks = sandBase64Cache.map((b64, i) => async () => {
-                const storagePath = `parts/${recordId}/sand_${i}_${Date.now()}.jpg`;
-                return await uploadBase64ToStorage(storagePath, b64);
+            const sandTasks = sandCache.map((item, i) => async () => {
+                const ext = item.type === 'pdf' ? 'pdf' : 'jpg';
+                const storagePath = `parts/${recordId}/sand_${i}_${Date.now()}.${ext}`;
+                const url = await uploadBase64ToStorage(storagePath, item.url);
+                return { url: url, type: item.type, name: item.name };
             });
 
             const otherTasks = [];
-            if (materialBase64Cache) {
+            if (materialCache) {
                 otherTasks.push(async () => {
-                    return await uploadBase64ToStorage(`parts/${recordId}/material_${Date.now()}.jpg`, materialBase64Cache);
+                    const ext = materialCache.type === 'pdf' ? 'pdf' : 'jpg';
+                    const storagePath = `parts/${recordId}/material_${Date.now()}.${ext}`;
+                    const url = await uploadBase64ToStorage(storagePath, materialCache.url);
+                    return { url: url, type: materialCache.type, name: materialCache.name };
                 });
             }
-            if (planBase64Cache) {
+            if (planCache) {
                 otherTasks.push(async () => {
-                    return await uploadBase64ToStorage(`parts/${recordId}/plan_${Date.now()}.jpg`, planBase64Cache);
+                    const ext = planCache.type === 'pdf' ? 'pdf' : 'jpg';
+                    const storagePath = `parts/${recordId}/plan_${Date.now()}.${ext}`;
+                    const url = await uploadBase64ToStorage(storagePath, planCache.url);
+                    return { url: url, type: planCache.type, name: planCache.name };
                 });
             }
 
-            const sandUrls = await uploadInBatches(sandTasks, 2);
-            const otherUrls = await uploadInBatches(otherTasks, 2);
+            const sandItems = await uploadInBatches(sandTasks, 2);
+            const otherItems = await uploadInBatches(otherTasks, 2);
 
-            record.sand = sandUrls;
-            if (materialBase64Cache) record.materialShape = otherUrls[0] || "";
-            if (planBase64Cache) record.planShape = materialBase64Cache ? (otherUrls[1] || "") : (otherUrls[0] || "");
+            record.sand = sandItems;
+            if (materialCache) record.materialShape = otherItems[0] || "";
+            if (planCache) record.planShape = materialCache ? (otherItems[1] || "") : (otherItems[0] || "");
 
             msgEl.textContent = "💾 部品情報をFirestoreに保存中...";
 
@@ -774,52 +822,67 @@
         const modalImg = document.getElementById('modalImg');
         const modalTitle = document.getElementById('modalTitle');
 
-        let images = [];
+        let rawItems = [];
         let title = '';
-        if (type === 'sand') { images = p.sand || []; title = '砂型形状'; }
-        if (type === 'material') { images = p.materialShape ? [p.materialShape] : []; title = '素材形状'; }
-        if (type === 'plan') { images = p.planShape ? [p.planShape] : []; title = '鋳造方案形状'; }
+        if (type === 'sand') { rawItems = p.sand || []; title = '砂型形状'; }
+        if (type === 'material') { rawItems = p.materialShape ? [p.materialShape] : []; title = '素材形状'; }
+        if (type === 'plan') { rawItems = p.planShape ? [p.planShape] : []; title = '鋳造方案形状'; }
 
-        if (!images || !images.length) { alert('写真がありません'); return; }
+        const items = rawItems.map(normalizeItem);
+        if (!items.length) { alert('ファイルがありません'); return; }
 
         modalTitle.textContent = title;
-        modalImg.alt = "読み込み中...";
-        modalImg.src = ""; // Placeholder during load
-
-        const imgObj = new Image();
-        imgObj.onload = () => {
-            modalImg.src = images[0];
-            modalImg.alt = "拡大画像";
-        };
-        imgObj.onerror = () => {
-            modalImg.alt = "写真の読み込みに失敗しました";
-            alert('写真の読み込みに失敗しました。');
-        };
-        imgObj.src = images[0];
-
-        modal.classList.add('show');
 
         const box = modal.querySelector('.modalBox');
         let old = box.querySelector('.photoButtons');
         if (old) old.remove();
+        let oldPdfBox = box.querySelector('.pdfViewerContainer');
+        if (oldPdfBox) oldPdfBox.remove();
 
-        if (images.length > 1) {
+        const pdfContainer = document.createElement('div');
+        pdfContainer.className = 'pdfViewerContainer';
+        pdfContainer.style.display = 'none';
+        pdfContainer.style.textAlign = 'center';
+        pdfContainer.style.padding = '20px';
+        pdfContainer.innerHTML = `<div style="font-size:48px; margin-bottom:10px;">📄</div><div id="pdfFileName" style="margin-bottom:15px; font-weight:bold; color:#cbd5e1;"></div><button type="button" class="primary" id="btnOpenPdf" style="padding:12px 20px;">📄 PDFを開く (3Dビューア)</button>`;
+        box.appendChild(pdfContainer);
+
+        function displayItem(item) {
+            if (item.type === 'pdf') {
+                modalImg.style.display = 'none';
+                pdfContainer.style.display = 'block';
+                pdfContainer.querySelector('#pdfFileName').textContent = item.name || 'PDFファイル';
+                pdfContainer.querySelector('#btnOpenPdf').onclick = () => {
+                    window.open(item.url, '_blank');
+                };
+            } else {
+                pdfContainer.style.display = 'none';
+                modalImg.style.display = 'block';
+                modalImg.alt = "読み込み中...";
+                modalImg.src = "";
+                const imgObj = new Image();
+                imgObj.onload = () => {
+                    modalImg.src = item.url;
+                    modalImg.alt = "拡大画像";
+                };
+                imgObj.onerror = () => {
+                    modalImg.alt = "写真の読み込みに失敗しました";
+                };
+                imgObj.src = item.url;
+            }
+        }
+
+        displayItem(items[0]);
+        modal.classList.add('show');
+
+        if (items.length > 1) {
             const nav = document.createElement('div');
             nav.className = 'photoButtons';
-            images.forEach((src, i) => {
+            items.forEach((item, i) => {
                 const b = document.createElement('button');
-                b.textContent = `写真 ${i+1}`;
+                b.textContent = item.type === 'pdf' ? `PDF ${i+1}` : `写真 ${i+1}`;
                 b.onclick = () => {
-                    modalImg.alt = "読み込み中...";
-                    const subImg = new Image();
-                    subImg.onload = () => {
-                        modalImg.src = src;
-                        modalImg.alt = "拡大画像";
-                    };
-                    subImg.onerror = () => {
-                        modalImg.alt = "読み込み失敗";
-                    };
-                    subImg.src = src;
+                    displayItem(item);
                 };
                 nav.appendChild(b);
             });
@@ -886,30 +949,49 @@
                     createdBy: currentUser.email
                 };
 
-                // Migrate sand photos (if base64 or url)
+                // Migrate sand items (if base64 data url or url/object)
                 if (Array.isArray(p.sand)) {
                     for (let i = 0; i < p.sand.length; i++) {
-                        const imgData = p.sand[i];
-                        if (imgData.startsWith('data:image')) {
-                            const storagePath = `parts/${newId}/sand_${i}_${Date.now()}.jpg`;
-                            try {
-                                const url = await uploadBase64ToStorage(storagePath, imgData);
-                                record.sand.push(url);
-                            } catch (err) {
-                                console.error("Sand photo upload failed", err);
+                        const item = p.sand[i];
+                        if (typeof item === 'string') {
+                            if (item.startsWith('data:image') || item.startsWith('data:application/pdf')) {
+                                const ext = item.startsWith('data:application/pdf') ? 'pdf' : 'jpg';
+                                const storagePath = `parts/${newId}/sand_${i}_${Date.now()}.${ext}`;
+                                try {
+                                    const url = await uploadBase64ToStorage(storagePath, item);
+                                    record.sand.push({ url: url, type: ext === 'pdf' ? 'pdf' : 'image', name: '' });
+                                } catch (err) {
+                                    console.error("Sand item upload failed", err);
+                                }
+                            } else {
+                                record.sand.push({ url: item, type: 'image', name: '' });
                             }
-                        } else {
-                            record.sand.push(imgData);
+                        } else if (item && item.url) {
+                            if (item.url.startsWith('data:image') || item.url.startsWith('data:application/pdf')) {
+                                const ext = item.type === 'pdf' || item.url.startsWith('data:application/pdf') ? 'pdf' : 'jpg';
+                                const storagePath = `parts/${newId}/sand_${i}_${Date.now()}.${ext}`;
+                                try {
+                                    const url = await uploadBase64ToStorage(storagePath, item.url);
+                                    record.sand.push({ url: url, type: ext === 'pdf' ? 'pdf' : 'image', name: item.name || '' });
+                                } catch (err) {
+                                    console.error("Sand item upload failed", err);
+                                }
+                            } else {
+                                record.sand.push(item);
+                            }
                         }
                     }
                 }
 
                 // Migrate material shape
                 if (p.materialShape) {
-                    if (p.materialShape.startsWith('data:image')) {
-                        const storagePath = `parts/${newId}/material_${Date.now()}.jpg`;
+                    const mItem = typeof p.materialShape === 'string' ? { url: p.materialShape, type: 'image', name: '' } : p.materialShape;
+                    if (mItem.url && (mItem.url.startsWith('data:image') || mItem.url.startsWith('data:application/pdf'))) {
+                        const ext = mItem.type === 'pdf' || mItem.url.startsWith('data:application/pdf') ? 'pdf' : 'jpg';
+                        const storagePath = `parts/${newId}/material_${Date.now()}.${ext}`;
                         try {
-                            record.materialShape = await uploadBase64ToStorage(storagePath, p.materialShape);
+                            const url = await uploadBase64ToStorage(storagePath, mItem.url);
+                            record.materialShape = { url: url, type: ext === 'pdf' ? 'pdf' : 'image', name: mItem.name || '' };
                         } catch (err) { console.error("Material upload failed", err); }
                     } else {
                         record.materialShape = p.materialShape;
@@ -918,10 +1000,13 @@
 
                 // Migrate plan shape
                 if (p.planShape) {
-                    if (p.planShape.startsWith('data:image')) {
-                        const storagePath = `parts/${newId}/plan_${Date.now()}.jpg`;
+                    const pItem = typeof p.planShape === 'string' ? { url: p.planShape, type: 'image', name: '' } : p.planShape;
+                    if (pItem.url && (pItem.url.startsWith('data:image') || pItem.url.startsWith('data:application/pdf'))) {
+                        const ext = pItem.type === 'pdf' || pItem.url.startsWith('data:application/pdf') ? 'pdf' : 'jpg';
+                        const storagePath = `parts/${newId}/plan_${Date.now()}.${ext}`;
                         try {
-                            record.planShape = await uploadBase64ToStorage(storagePath, p.planShape);
+                            const url = await uploadBase64ToStorage(storagePath, pItem.url);
+                            record.planShape = { url: url, type: ext === 'pdf' ? 'pdf' : 'image', name: pItem.name || '' };
                         } catch (err) { console.error("Plan upload failed", err); }
                     } else {
                         record.planShape = p.planShape;
@@ -1072,9 +1157,9 @@
     document.getElementById('btnNewReg').onclick = () => {
         if (confirm('入力をリセットしますか？')) {
             document.querySelectorAll('input, textarea').forEach(el => el.value = '');
-            sandFiles = []; sandBase64Cache = [];
-            materialFile = null; materialBase64Cache = "";
-            planFile = null; planBase64Cache = "";
+            sandFiles = []; sandCache = [];
+            materialFile = null; materialCache = null;
+            planFile = null; planCache = null;
             renderSand();
             renderOne(null, 'materialPhoto', 'material');
             renderOne(null, 'planPhoto', 'plan');
